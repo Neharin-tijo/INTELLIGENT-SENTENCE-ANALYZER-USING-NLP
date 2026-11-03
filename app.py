@@ -5,8 +5,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from nltk.stem import PorterStemmer, SnowballStemmer
 
+
 # --------------------------------------------------
-# Page configuration
+# PAGE CONFIGURATION
 # --------------------------------------------------
 
 st.set_page_config(
@@ -15,8 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # --------------------------------------------------
-# Load NLP model and stemmers
+# LOAD NLP MODEL AND STEMMERS
 # --------------------------------------------------
 
 @st.cache_resource
@@ -30,173 +32,242 @@ def load_stemmers():
 
 
 # --------------------------------------------------
-# Dependency tree visualization
+# DEPENDENCY TREE VISUALIZATION
 # --------------------------------------------------
 
 def display_dependency_tree(doc):
-    """
-    Draw a hierarchical dependency tree.
-    Root is at the top; dependency labels appear on branches.
-    """
 
-    st.subheader("Dependency Parse Tree")
+    st.subheader("Dependency Parse Trees")
 
-    roots = [token for token in doc if token.dep_ == "ROOT"]
+    # Split the document into individual sentences
+    sentences = list(doc.sents)
 
-    if not roots:
-        st.warning("Could not identify the root of the sentence.")
+    if not sentences:
+        st.warning("No sentences found.")
         return
 
-    root = roots[0]
+    # Process every sentence separately
+    for sentence_index, sent in enumerate(sentences, start=1):
 
-    # Sort children according to their position in the sentence.
-    def get_children(token):
-        return sorted(list(token.children), key=lambda child: child.i)
+        st.markdown(f"### Sentence {sentence_index}")
+        st.write(sent.text)
 
-    # Store horizontal position and depth for each token.
-    positions = {}
-    leaf_counter = [0]
+        # Find the root of the current sentence
+        root = sent.root
 
-    def assign_positions(token, depth=0):
-        children = get_children(token)
+        positions = {}
+        leaf_counter = [0]
 
-        if not children:
-            x = leaf_counter[0]
-            leaf_counter[0] += 1
-        else:
-            child_positions = [
-                assign_positions(child, depth + 1)
-                for child in children
-            ]
-            x = sum(child_positions) / len(child_positions)
+        # Get children in original word order
+        def get_children(token):
 
-        positions[token.i] = (x, depth)
-        return x
+            return sorted(
+                [child for child in token.children if child in sent],
+                key=lambda child: child.i
+            )
 
-    assign_positions(root)
+        # Calculate positions of words
+        def assign_positions(token, depth=0):
 
-    # Find all tokens, including punctuation and any extra branches.
-    # Normally all tokens belong to the root's dependency tree.
-    for token in doc:
-        if token.i not in positions:
-            positions[token.i] = (leaf_counter[0], 1)
-            leaf_counter[0] += 1
+            children = get_children(token)
 
-    # Draw the tree.
-    max_depth = max(depth for _, depth in positions.values())
-    min_x = min(x for x, _ in positions.values())
-    max_x = max(x for x, _ in positions.values())
+            if not children:
 
-    fig_width = max(7, (max_x - min_x + 1) * 1.65)
-    fig_height = max(3.5, (max_depth + 1) * 1.15)
+                x = leaf_counter[0]
+                leaf_counter[0] += 1
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+            else:
 
-    # Draw dependency edges and labels.
-    for token in doc:
-        if token.dep_ == "ROOT":
-            continue
+                child_positions = [
+                    assign_positions(child, depth + 1)
+                    for child in children
+                ]
 
-        child_x, child_depth = positions[token.i]
-        head_x, head_depth = positions[token.head.i]
+                x = sum(child_positions) / len(child_positions)
 
-        # Edges connect the parent to its child.
-        ax.plot(
-            [head_x, child_x],
-            [-head_depth - 0.15, -child_depth + 0.15],
-            color="black",
-            linewidth=1.2,
-            zorder=1
+            positions[token.i] = (x, depth)
+
+            return x
+
+        assign_positions(root)
+
+        # Calculate tree dimensions
+        max_depth = max(
+            depth for x, depth in positions.values()
         )
 
-        # Dependency label is placed near the middle of the branch.
-        label_x = (head_x + child_x) / 2
-        label_y = (
-            -head_depth - 0.15 - child_depth + 0.15
-        ) / 2
-
-        ax.text(
-            label_x,
-            label_y,
-            token.dep_,
-            ha="center",
-            va="center",
-            fontsize=10,
-            bbox={
-                "facecolor": "white",
-                "edgecolor": "none",
-                "pad": 1.5
-            },
-            zorder=2
+        min_x = min(
+            x for x, depth in positions.values()
         )
 
-    # Draw token names.
-    for token in doc:
-        x, depth = positions[token.i]
-
-        ax.text(
-            x,
-            -depth,
-            token.text,
-            ha="center",
-            va="center",
-            fontsize=11,
-            bbox={
-                "boxstyle": "round,pad=0.3",
-                "facecolor": "#F0F0F0",
-                "edgecolor": "none"
-            },
-            zorder=3
+        max_x = max(
+            x for x, depth in positions.values()
         )
 
-    ax.set_xlim(min_x - 0.7, max_x + 0.7)
-    ax.set_ylim(-max_depth - 0.6, 0.6)
-    ax.axis("off")
+        # Create a separate figure for each sentence
+        fig_width = max(
+            8,
+            (max_x - min_x + 1) * 1.8
+        )
 
-    fig.tight_layout()
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
+        fig_height = max(
+            4,
+            (max_depth + 1) * 1.3
+        )
 
-    st.caption(
-        "The root is shown at the top. Each branch connects a dependent "
-        "word to its syntactic head, with the dependency label displayed "
-        "along the branch."
-    )
+        fig, ax = plt.subplots(
+            figsize=(fig_width, fig_height)
+        )
+
+        # Draw dependency branches and labels
+        for token in sent:
+
+            if token == root:
+                continue
+
+            child_x, child_depth = positions[token.i]
+
+            head_x, head_depth = positions[token.head.i]
+
+            # Draw connection
+            ax.plot(
+                [head_x, child_x],
+                [-head_depth, -child_depth],
+                color="black",
+                linewidth=1.5,
+                zorder=1
+            )
+
+            # Dependency label
+            label_x = (head_x + child_x) / 2
+
+            label_y = (
+                -head_depth - child_depth
+            ) / 2
+
+            ax.text(
+                label_x,
+                label_y,
+                token.dep_,
+                ha="center",
+                va="center",
+                fontsize=9,
+                bbox={
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "pad": 1.5
+                },
+                zorder=2
+            )
+
+        # Draw token names
+        for token in sent:
+
+            x, depth = positions[token.i]
+
+            ax.text(
+                x,
+                -depth,
+                token.text,
+                ha="center",
+                va="center",
+                fontsize=11,
+                bbox={
+                    "boxstyle": "round,pad=0.35",
+                    "facecolor": "#E8E8E8",
+                    "edgecolor": "none"
+                },
+                zorder=3
+            )
+
+        # Set tree boundaries
+        ax.set_xlim(
+            min_x - 0.8,
+            max_x + 0.8
+        )
+
+        ax.set_ylim(
+            -max_depth - 0.8,
+            0.8
+        )
+
+        ax.axis("off")
+
+        fig.tight_layout()
+
+        # Display the current sentence tree
+        st.pyplot(
+            fig,
+            use_container_width=False
+        )
+
+        plt.close(fig)
+
+        st.caption(
+            f"Dependency tree for sentence {sentence_index}. "
+            "The root is at the top. Branches represent "
+            "grammatical relationships between words."
+        )
+
+        st.divider()
 
 
 # --------------------------------------------------
-# Token analysis
+# TOKEN ANALYSIS
 # --------------------------------------------------
 
 def analyze_sentence(doc, porter_stemmer, snowball_stemmer):
+
     rows = []
 
     for token in doc:
+
         rows.append({
+
             "Token": token.text,
+
             "Lemma": token.lemma_,
-            "Porter Stem": porter_stemmer.stem(token.text),
-            "Snowball Stem": snowball_stemmer.stem(token.text),
+
+            "Porter Stem": porter_stemmer.stem(
+                token.text
+            ),
+
+            "Snowball Stem": snowball_stemmer.stem(
+                token.text
+            ),
+
             "POS": token.pos_,
+
             "Detailed POS": token.tag_,
+
             "Dependency": token.dep_,
+
             "Head": token.head.text,
+
             "Head Index": token.head.i,
+
             "Morphology": str(token.morph),
+
             "Is Stopword": token.is_stop,
+
             "Is Punctuation": token.is_punct,
+
             "Is Alphabetic": token.is_alpha
+
         })
 
     return pd.DataFrame(rows)
 
 
 # --------------------------------------------------
-# Main application
+# MAIN APPLICATION
 # --------------------------------------------------
 
 def main():
-    st.title("🧠 Intelligent Sentence Analyzer Using NLP")
+
+    st.title(
+        "🧠 Intelligent Sentence Analyzer Using NLP"
+    )
 
     st.write(
         "An NLP application for analyzing sentence structure, "
@@ -205,39 +276,51 @@ def main():
 
     st.divider()
 
-    # Load resources.
+    # Load required resources
     try:
+
         nlp = load_nlp_model()
+
         porter_stemmer, snowball_stemmer = load_stemmers()
 
     except OSError:
+
         st.error(
-            "The spaCy English model is not installed. "
-            "Run the following commands in your terminal."
+            "The spaCy English model is not installed."
         )
+
         st.code(
-            "pip install -r requirements.txt\n"
+            "pip install streamlit spacy pandas matplotlib nltk\n"
             "python -m spacy download en_core_web_sm"
         )
+
         st.stop()
 
     # --------------------------------------------------
-    # Input
+    # INPUT SECTION
     # --------------------------------------------------
 
     st.subheader("Enter Text")
 
     examples = {
-        "Simple sentence": "The boy eats an apple.",
-        "Compound sentence": (
-            "The boy eats an apple, and his sister drinks milk."
-        ),
-        "Complex sentence": (
-            "Although it was raining, the students continued playing."
-        ),
-        "Named entities": (
-            "Dr. A. P. J. Abdul Kalam was born in India in 1931."
-        )
+
+        "Simple sentence":
+            "The boy eats an apple.",
+
+        "Compound sentence":
+            "The boy eats an apple, and his sister drinks milk.",
+
+        "Complex sentence":
+            "Although it was raining, the students continued playing.",
+
+        "Named entities":
+            "Dr. A. P. J. Abdul Kalam was born in India in 1931.",
+
+        "Multiple sentences":
+            "The boy eats an apple. "
+            "His sister drinks milk. "
+            "Neena reads a book."
+
     }
 
     selected_example = st.selectbox(
@@ -246,15 +329,19 @@ def main():
     )
 
     initial_text = (
+
         examples[selected_example]
+
         if selected_example != "Custom input"
+
         else "The boy eats an apple."
+
     )
 
     text_input = st.text_area(
         "Sentence or paragraph",
         value=initial_text,
-        height=120,
+        height=150,
         max_chars=10000
     )
 
@@ -265,33 +352,47 @@ def main():
     )
 
     if not analyze_button:
-        st.info("Enter your text and click Analyze Text.")
+
+        st.info(
+            "Enter your text and click Analyze Text."
+        )
+
         st.markdown(
             """
             **Features**
+
             - Tokenization and sentence segmentation
             - Stemming and lemmatization
             - Part-of-speech tagging
-            - Hierarchical dependency parse tree
-            - Named entity recognition
+            - Separate dependency parse tree for each sentence
+            - Named Entity Recognition
             - Stopword and punctuation identification
             - Downloadable CSV analysis
             """
         )
+
         return
 
     if not text_input.strip():
-        st.warning("Please enter a sentence or paragraph.")
+
+        st.warning(
+            "Please enter a sentence or paragraph."
+        )
+
         return
 
     # --------------------------------------------------
-    # Process input
+    # PROCESS INPUT
     # --------------------------------------------------
 
     try:
+
         doc = nlp(text_input)
+
         if not list(doc):
+
             st.warning("No tokens were found.")
+
             return
 
         token_df = analyze_sentence(
@@ -301,86 +402,134 @@ def main():
         )
 
     except Exception as error:
-        st.error(f"An error occurred during analysis: {error}")
+
+        st.error(
+            f"An error occurred during analysis: {error}"
+        )
+
         return
 
     # --------------------------------------------------
-    # Summary
+    # ANALYSIS SUMMARY
     # --------------------------------------------------
 
     st.divider()
+
     st.subheader("Analysis Summary")
 
     sentences = list(doc.sents)
+
     entities = list(doc.ents)
-    tokens = [token for token in doc if not token.is_space]
-    alphabetic_tokens = [token for token in doc if token.is_alpha]
+
+    tokens = [
+        token for token in doc
+        if not token.is_space
+    ]
+
+    alphabetic_tokens = [
+        token for token in doc
+        if token.is_alpha
+    ]
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Tokens", len(tokens))
-    col2.metric("Sentences", len(sentences))
-    col3.metric("Alphabetic Tokens", len(alphabetic_tokens))
-    col4.metric("Named Entities", len(entities))
+    col1.metric(
+        "Tokens",
+        len(tokens)
+    )
 
-    # --------------------------------------------------
-    # Sentence segmentation
-    # --------------------------------------------------
+    col2.metric(
+        "Sentences",
+        len(sentences)
+    )
 
-    st.divider()
-    st.subheader("1. Sentence Segmentation")
+    col3.metric(
+        "Alphabetic Tokens",
+        len(alphabetic_tokens)
+    )
 
-    for index, sent in enumerate(sentences, start=1):
-        st.write(f"**Sentence {index}:** {sent.text}")
-
-    # --------------------------------------------------
-    # Tokenization
-    # --------------------------------------------------
-
-    st.divider()
-    st.subheader("2. Tokenization")
-
-    st.write(" → ".join(token.text for token in tokens))
-
-    # --------------------------------------------------
-    # POS tagging
-    # --------------------------------------------------
-
-    st.divider()
-    st.subheader("3. Part-of-Speech Tagging")
-
-    st.dataframe(
-        token_df[["Token", "POS", "Detailed POS"]],
-        use_container_width=True,
-        hide_index=True
+    col4.metric(
+        "Named Entities",
+        len(entities)
     )
 
     # --------------------------------------------------
-    # Lemmatization and stemming
+    # 1. SENTENCE SEGMENTATION
     # --------------------------------------------------
 
     st.divider()
-    st.subheader("4. Lemmatization and Stemming")
+
+    st.subheader("1. Sentence Segmentation")
+
+    for index, sent in enumerate(sentences, start=1):
+
+        st.write(
+            f"**Sentence {index}:** {sent.text}"
+        )
+
+    # --------------------------------------------------
+    # 2. TOKENIZATION
+    # --------------------------------------------------
+
+    st.divider()
+
+    st.subheader("2. Tokenization")
+
+    st.write(
+        " → ".join(
+            token.text for token in tokens
+        )
+    )
+
+    # --------------------------------------------------
+    # 3. POS TAGGING
+    # --------------------------------------------------
+
+    st.divider()
+
+    st.subheader("3. Part-of-Speech Tagging")
 
     st.dataframe(
         token_df[
-            ["Token", "Lemma", "Porter Stem", "Snowball Stem"]
+            ["Token", "POS", "Detailed POS"]
         ],
         use_container_width=True,
         hide_index=True
     )
 
     # --------------------------------------------------
-    # Dependency parsing
+    # 4. LEMMATIZATION AND STEMMING
     # --------------------------------------------------
 
     st.divider()
+
+    st.subheader("4. Lemmatization and Stemming")
+
+    st.dataframe(
+        token_df[
+            [
+                "Token",
+                "Lemma",
+                "Porter Stem",
+                "Snowball Stem"
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # --------------------------------------------------
+    # 5. SYNTACTIC ANALYSIS
+    # --------------------------------------------------
+
+    st.divider()
+
     st.subheader("5. Syntactic Analysis")
 
     st.write(
-        "The dependency tree displays the syntactic head and its "
-        "dependent words. Labels such as nsubj, obj, and det describe "
-        "grammatical relationships."
+        "Each sentence is displayed as a separate dependency tree. "
+        "The root word is at the top, and labels such as nsubj, "
+        "obj, and det describe grammatical relationships."
     )
 
     display_dependency_tree(doc)
@@ -388,28 +537,43 @@ def main():
     st.subheader("Dependency Details")
 
     st.dataframe(
-        token_df[["Token", "Dependency", "Head", "Head Index"]],
+        token_df[
+            [
+                "Token",
+                "Dependency",
+                "Head",
+                "Head Index"
+            ]
+        ],
         use_container_width=True,
         hide_index=True
     )
 
     # --------------------------------------------------
-    # Named entity recognition
+    # 6. NAMED ENTITY RECOGNITION
     # --------------------------------------------------
 
     st.divider()
+
     st.subheader("6. Named Entity Recognition")
 
     if entities:
+
         entity_df = pd.DataFrame([
+
             {
                 "Entity": entity.text,
+
                 "Entity Type": entity.label_,
+
                 "Description": (
-                    spacy.explain(entity.label_) or entity.label_
+                    spacy.explain(entity.label_)
+                    or entity.label_
                 )
             }
+
             for entity in entities
+
         ])
 
         st.dataframe(
@@ -417,44 +581,76 @@ def main():
             use_container_width=True,
             hide_index=True
         )
+
     else:
-        st.info("No named entities were detected.")
+
+        st.info(
+            "No named entities were detected."
+        )
 
     # --------------------------------------------------
-    # Stopwords and punctuation
+    # 7. STOPWORD AND PUNCTUATION ANALYSIS
     # --------------------------------------------------
 
     st.divider()
-    st.subheader("7. Stopword and Punctuation Analysis")
+
+    st.subheader(
+        "7. Stopword and Punctuation Analysis"
+    )
 
     stopwords = [
-        token.text for token in doc
+
+        token.text
+
+        for token in doc
+
         if token.is_stop and not token.is_punct
+
     ]
 
     punctuation = [
-        token.text for token in doc
+
+        token.text
+
+        for token in doc
+
         if token.is_punct
+
     ]
 
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.markdown("**Stopwords**")
-        st.write(", ".join(stopwords) if stopwords else "None")
+
+        st.write(
+            ", ".join(stopwords)
+            if stopwords
+            else "None"
+        )
 
     with col2:
+
         st.markdown("**Punctuation**")
-        st.write(", ".join(punctuation) if punctuation else "None")
+
+        st.write(
+            ", ".join(punctuation)
+            if punctuation
+            else "None"
+        )
 
     # --------------------------------------------------
-    # Export CSV
+    # 8. EXPORT RESULTS
     # --------------------------------------------------
 
     st.divider()
+
     st.subheader("8. Export Results")
 
-    csv_data = token_df.to_csv(index=False).encode("utf-8")
+    csv_data = token_df.to_csv(
+        index=False
+    ).encode("utf-8")
 
     st.download_button(
         label="Download Analysis as CSV",
@@ -464,14 +660,20 @@ def main():
         use_container_width=True
     )
 
-    st.success("Analysis completed successfully.")
+    st.success(
+        "Analysis completed successfully."
+    )
 
     st.caption(
         "The results depend on the installed spaCy language model. "
-        "Review the predicted grammatical relationships before using "
-        "them as ground-truth annotations."
+        "Review the predicted grammatical relationships before "
+        "using them as ground-truth annotations."
     )
 
+
+# --------------------------------------------------
+# RUN APPLICATION
+# --------------------------------------------------
 
 if __name__ == "__main__":
     main()
